@@ -6,6 +6,19 @@ from django.urls import reverse_lazy
 from django.contrib.auth.views import LoginView, LogoutView
 from django.views import View
 from django.shortcuts import redirect
+from django.contrib.auth.forms import PasswordChangeForm
+from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
+from django.contrib.auth.mixins import LoginRequiredMixin
+
+def send_email(user, subject, template):
+        message = render_to_string(template, {
+            'user' : user,
+            
+        })
+        send_email = EmailMultiAlternatives(subject, '', to=[user.email])
+        send_email.attach_alternative(message, "text/html")
+        send_email.send()
 
 class UserRegistrationView(FormView):
     template_name = 'accounts/user_registration.html'
@@ -32,7 +45,7 @@ class UserLogoutView(LogoutView):
         return reverse_lazy('home')
 
 
-class UserBankAccountUpdateView(View):
+class UserBankAccountUpdateView(LoginRequiredMixin, View):
     template_name = 'accounts/profile.html'
 
     def get(self, request):
@@ -47,4 +60,20 @@ class UserBankAccountUpdateView(View):
         return render(request, self.template_name, {'form': form})
     
     
-    
+
+class PasswordChangeView(View):
+    template_name = 'change_pass.html'
+
+    def get(self, request):
+        form = PasswordChangeForm(user=request.user)
+        return render(request, 'accounts/change_pass.html', {'form': form})
+
+    def post(self, request):
+        form = PasswordChangeForm(user=request.user, data=request.POST)
+        if form.is_valid():
+            form.save()
+            # Password changed successfully, perform any additional actions
+            send_email(request.user, "Password Change", "accounts/passchange_email.html")
+            return redirect('profile')  # Redirect to the user's profile page
+
+        return render(request, 'accounts/change_pass.html', {'form': form})

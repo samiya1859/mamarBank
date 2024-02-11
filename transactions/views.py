@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.models import User
+from django.forms import BaseModelForm
 from .forms import TransferBalanceForm
 from django.urls import reverse_lazy
 from django.utils import timezone
@@ -8,7 +9,7 @@ from django.shortcuts import get_object_or_404, redirect,render
 from django.views import View
 from django.http import HttpResponse
 from django.views.generic import CreateView, ListView
-from transactions.constants import DEPOSIT, WITHDRAWAL,LOAN, LOAN_PAID
+from transactions.constants import DEPOSIT, WITHDRAWAL,LOAN, LOAN_PAID,TRANSFER
 from datetime import datetime
 from django.core.mail import EmailMessage,EmailMultiAlternatives
 from django.template.loader import render_to_string
@@ -207,24 +208,23 @@ class LoanListView(LoginRequiredMixin,ListView):
         return queryset
     
 
-class TransferBalance(LoginRequiredMixin, View):
-    def get(self, request):
-        form = TransferBalanceForm()  # Initialize the form without any arguments
-        return render(request, 'transactions/transfer_balance.html', {'form': form})
+class TransferBalance(TransactionCreateMixin):
+    form_class = TransferBalanceForm
+    title = 'Transfer balance'
+    def get_initial(self):
+        initial = {'transaction_type' : TRANSFER}
+        return initial
+    
+    def form_valid(self, form):
+        amount = form.cleaned_data.get('amount')
+        account
+        return super().form_valid(form)
 
     def post(self, request):
         form = TransferBalanceForm(data=request.POST)
         if form.is_valid():
             recipient_username = form.cleaned_data['recipient_username']
             amount = form.cleaned_data['amount']
-
-            bank = Bank.objects.first()  # Assuming you have only one bank instance, modify this as needed
-            if bank.is_bankrupt:
-                messages.error(
-                    request,
-                    "Bankrupt! Transfer is not allowed at the moment."
-                )
-                return redirect('home')  # Redirect to wherever appropriate
 
             try:
                 recipient_user = User.objects.get(username=recipient_username)
@@ -235,7 +235,7 @@ class TransferBalance(LoginRequiredMixin, View):
 
             if amount <= 0:
                 messages.error(request, "Amount must be greater than zero.")
-                return redirect('home')
+                return redirect('transfer')
 
             sender_account = request.user.account
             if sender_account.balance < amount:
@@ -265,7 +265,12 @@ class TransferBalance(LoginRequiredMixin, View):
                 balance_after_transaction=recipient_account.balance
             )
 
+            # Send email notifications to sender and receiver
+            self.send_transaction_email(request.user, recipient_user, amount)
+
             messages.success(request, f"Successfully transferred {amount}$.")
             return redirect('transfer')
         else:
             return render(request, 'transactions/transfer_balance.html', {'form': form})
+
+    
