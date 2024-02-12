@@ -6,19 +6,21 @@ class TransactionForm(forms.ModelForm):
         model = Transaction
         fields = [
             'amount',
-            'transaction_type'
+           'transaction_type',
         ]
 
     def __init__(self, *args, **kwargs):
-        self.account = kwargs.pop('account') # account value ke pop kore anlam
+        self.account = kwargs.pop('account',None) # account value ke pop kore anlam
         super().__init__(*args, **kwargs)
-        self.fields['transaction_type'].disabled = True # ei field disable thakbe
-        self.fields['transaction_type'].widget = forms.HiddenInput() # user er theke hide kora thakbe
+        #if self.account:
+            #self.fields['transaction_type'].disabled = True # ei field disable thakbe
+           # self.fields['transaction_type'].widget = forms.HiddenInput() # user er theke hide kora thakbe
 
     def save(self, commit=True):
-        self.instance.account = self.account
-        self.instance.balance_after_transaction = self.account.balance
-        return super().save()
+        if self.account:
+           self.instance.account = self.account
+           self.instance.balance_after_transaction = self.account.balance
+        return super().save(commit=commit)
 
 
 class DepositForm(TransactionForm):
@@ -67,25 +69,30 @@ class LoanRequestForm(TransactionForm):
 
         return amount
     
+# class TransferBalanceForm(TransactionForm):
+#     def clean_amount(self):
+#         balance = self.account.balance 
+#         amount = self.cleaned_data.get('amount')
+#         if amount < 200:
+#             raise forms.ValidationError(
+#                 f'You can withdraw at least {200} $'
+#             )
+
+#         if amount > 20000:
+#             raise forms.ValidationError(
+#                 f'You can withdraw at most {20000} $'
+#             )
+
+#         if amount > balance:
+#             raise forms.ValidationError(
+#                 f'You have {balance} $. '
+#                 'You can not withdraw more than your account balance'
+#             )
+
+#         return amount
+    
+    
 class TransferBalanceForm(forms.Form):
     recipient_username = forms.CharField(label='Recipient Username')
     amount = forms.DecimalField(label='Amount', min_value=0)
-
-    # def __init__(self, sender_account=None, *args, **kwargs):
-    #     self.sender_account = sender_account
-    #     super().__init__(*args, **kwargs)
-
-    # def clean_amount(self):
-    #     amount = self.cleaned_data.get('amount')
-
-    #     if amount <= 0:
-    #         raise forms.ValidationError('Amount must be greater than zero')
-        
-    #     if self.sender_account.balance < amount:
-    #         raise forms.ValidationError('Amount is greater than balance')
-
-    #     return amount
-
-    # def clean_recipient_username(self):
-    #     recipient_username = self.cleaned_data.get('recipient_username')
-    #     return recipient_username
+   

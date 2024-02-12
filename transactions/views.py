@@ -9,12 +9,13 @@ from django.shortcuts import get_object_or_404, redirect,render
 from django.views import View
 from django.http import HttpResponse
 from django.views.generic import CreateView, ListView
-from transactions.constants import DEPOSIT, WITHDRAWAL,LOAN, LOAN_PAID,TRANSFER
+from transactions.constants import DEPOSIT, WITHDRAWAL,LOAN, LOAN_PAID,TRANSFER,SEND_MONEY,RECEIVE_MONEY
 from datetime import datetime
 from django.core.mail import EmailMessage,EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.db.models import Sum
-from accounts.models import Bank
+from accounts.models import Bank,UserBankAccount
+
 from transactions.forms import (
     DepositForm,
     WithdrawForm,
@@ -217,7 +218,16 @@ class TransferBalance(TransactionCreateMixin):
     
     def form_valid(self, form):
         amount = form.cleaned_data.get('amount')
-        account
+        account_no = form.cleaned_data.get('account_no')
+        print(account_no)
+
+        self.request.user.account.balance -= form.cleaned_data.get('amount')
+        self.request.user.account.save(update_fields=['balance'])
+
+        messages.success(
+            self.request,
+            f'Successfully transferred {amount}$ from your account'
+        )
         return super().form_valid(form)
 
     def post(self, request):
@@ -266,7 +276,7 @@ class TransferBalance(TransactionCreateMixin):
             )
 
             # Send email notifications to sender and receiver
-            self.send_transaction_email(request.user, recipient_user, amount)
+            
 
             messages.success(request, f"Successfully transferred {amount}$.")
             return redirect('transfer')
@@ -274,3 +284,140 @@ class TransferBalance(TransactionCreateMixin):
             return render(request, 'transactions/transfer_balance.html', {'form': form})
 
     
+
+
+# def Transfer_Balance(request):
+#     title = 'Transfer Balance'
+#     if request.method == 'POST':
+#         form = TransferBalanceForm(request.POST,account=request.user.account)
+#         if form.is_valid():
+#             sender_account = request.user.account
+#             receiver_account_no = form.cleaned_data['receiver_account']
+#             try:
+#                 receiver_account = UserBankAccount.objects.get(account_no=receiver_account_no)
+#             except UserBankAccount.DoesNotExist:
+#                 print('Receiver account not found')
+                
+#                 return redirect('home')  # Redirect to an appropriate page
+
+#             amount = form.cleaned_data['amount']
+
+#             if sender_account.balance >= amount:
+#                 sender_account.balance -= amount
+#                 sender_account.save()
+#                 send_transaction_email(sender_account.user, amount, 'Sent Money', 'transactions/transfer_email_sender.html')
+
+#                 receiver_account.balance += amount
+#                 receiver_account.save()
+#                 send_transaction_email(receiver_account.user, amount, 'Received money', 'transactions/transfer_email_receiver.html')
+
+#                 # Create transactions
+#                 Transaction.objects.create(
+#                     account=sender_account,
+#                     amount=amount,
+#                     balance_after_transaction=sender_account.balance,
+#                     transaction_type=SEND_MONEY,
+#                     loan_approve=False,
+#                 )
+#                 Transaction.objects.create(
+#                     account=receiver_account,
+#                     amount=amount,
+#                     balance_after_transaction=receiver_account.balance,
+#                     transaction_type=RECEIVE_MONEY,
+#                     loan_approve=False,
+#                 )
+
+#                 return redirect('home')
+#             else:
+#                 print('Insufficient balance')
+#                 # You may want to provide a user-friendly message here
+#     else:
+#         form = TransferBalanceForm(account=request.user.account)
+
+#     return render(request, 'transactions/transfer_balance.html', {'form': form})
+
+
+class TransferBalance(View):
+    template_name = 'transactions/transfer_balance.html'
+    form_class = TransferBalanceForm
+    title = 'Transfer balance'
+
+    def get_initial(self):
+        return {'transaction_type': TRANSFER}
+
+    def get(self, request):
+        form = self.form_class()
+        return render(request, self.template_name, {'form': form})
+
+    def post(self, request):
+        form = self.form_class(data=request.POST)
+        if form.is_valid():
+            recipient_username = form.cleaned_data['recipient_username']
+            amount = form.cleaned_data['amount']
+
+            try:
+                recipient_user = User.objects.get(username=recipient_username)
+                recipient_account = recipient_user.account
+            except User.DoesNotExist:
+                messages.error(request, f"Recipient '{recipient_username}' does not exist.")
+                return redirect('transfer')
+
+            sender_account = request.user.account
+            if sender_account.balance < amount:
+                messages.error(request, 'Insufficient balance.')
+                return redirect('transfer')
+
+            sender_account.balance -= amount
+            sender_account.save()
+
+            recipient_account.balance += amount
+            recipient_account.save()
+
+            # Create transaction records for sender and recipient
+            sender_transaction = Transaction.objects.create(
+                account=sender_account,
+                transaction_type=TRANSFER,
+                amount=amount,
+                timestamp=timezone.now(),
+                balance_after_transaction=sender_account.balance
+            )
+
+            recipient_transaction = Transaction.objects.create(
+                account=recipient_account,
+                transaction_type=RECEIVE_MONEY,
+                amount=amount,
+                timestamp=timezone.now(),
+                balance_after_transaction=recipient_account.balance
+            )
+
+            # Send email notifications to sender and receiver
+            self.send_transaction_email(request.user, recipient_user, amount)
+
+            messages.success(request, f"Successfully transferred {amount}$.")
+            return redirect('transfer')
+        else:
+            return render(request, self.template_name, {'form': form})
+        
+    def send_transaction_email(self, sender, recipient, amount):
+        # Render the email content from HTML templates
+        print("sender :",sender)
+        print("recipient :",recipient)
+        sender_message = render_to_string('transactions/transfer_email_sender.html', {
+            'sender': sender,
+            'recipient': recipient,
+            'amount': amount,
+        })
+        sender_subject = f"You've transferred {amount}$"
+        sender_email = EmailMultiAlternatives(sender_subject, sender_message, to=[sender.email])
+        sender_email.attach_alternative(sender_message,"text/html")
+        sender_email.send()
+    
+        recipient_message = render_to_string('transactions/transfer_email_recipient.html', {
+            'sender': sender,
+            'recipient': recipient,
+            'amount': amount,
+        })
+        recipient_subject = f"You've received {amount}$"
+        recipient_email = EmailMultiAlternatives(recipient_subject, recipient_message, to=[recipient.email])
+        recipient_email.attach_alternative(recipient_message,"text/html")
+        recipient_email.send()
